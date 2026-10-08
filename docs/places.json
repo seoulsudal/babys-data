@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-06",
+  "generatedAt": "2026-10-08",
   "dataUpdatedAt": "2026-10-02",
   "source": {
     "id": "seoul-kids-cafe",
@@ -8,7 +8,7 @@
     "organization": "서울특별시 여성가족실 아이돌봄담당관",
     "url": "https://data.seoul.go.kr/dataList/OA-21716/S/1/datasetView.do",
     "licenseNote": "공공누리 제1유형(출처표시). 서울 열린데이터광장 OA-21716, 매월 3일 갱신",
-    "baseDate": "2026-10-06 수집"
+    "baseDate": "2026-10-08 수집"
   },
   "places": [
     {"id": "DB231001", "name": "서울형 키즈카페 도봉구 도봉2동1호점(봉봉트레킹)", "district": "도봉구", "address": "서울특별시 도봉구 마들로 668", "addressDetail": "(도봉동)", "lat": 37.66967, "lng": 127.04653, "ageRangeText": "0세 ~ 4세", "openDays": "월요일 ~ 토요일", "closedDays": "일요일, 법정공휴일", "rentalFree": false, "phone": "02-3492-7773"},
