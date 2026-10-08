@@ -66,10 +66,10 @@ def coordinate_problem(lat, lng):
 
 
 def clean(value):
-    """앞뒤 공백을 지우고, 비었거나 문자열 "null" 이면 None."""
+    """공백(연속·탭·줄바꿈 포함)을 한 칸으로 정리하고, 비었거나 문자열 "null" 이면 None."""
     if value is None:
         return None
-    s = str(value).strip()
+    s = " ".join(str(value).split())
     return None if s in ("", "null") else s
 
 
