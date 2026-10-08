@@ -7,7 +7,10 @@ BABYS 앱이 내려받아 쓰는 **서울형 키즈카페 목록**(`docs/places.
 
 ```
 .github/workflows/update-places.yml   매월 4일(+수동) 수집 → 검증 → 바뀌었을 때만 커밋
-tools/fetch_places.py                 수집·검증 스크립트 (BABYS의 tools/fetch_places.py 와 같은 파일)
+tools/fetch_places.py                 장소 수집·검증 스크립트 (BABYS의 tools/fetch_places.py 와 같은 파일)
+tools/check_vcninfo.py                예방접종 API 변경 점검 스크립트 (BABYS의 tools/check_vcninfo.py 와 같은 파일)
+data/kdca-vcninfo-baseline.json     점검의 기준 스냅샷
+.github/workflows/check-vcninfo.yml   매주 점검 + 변경 시 이슈 알림
 docs/places.json                      게시되는 데이터 (Pages가 /docs 를 게시한다)
 docs/.nojekyll                        Jekyll 처리를 끈다
 ```
@@ -36,10 +39,25 @@ docs/.nojekyll                        Jekyll 처리를 끈다
    `https://<내 아이디>.github.io/babys-data/places.json`
 7. 위 주소를 Claude에게 알려 주면 앱에 연결하고(`PLACES_DATA_URL`) 실제 갱신까지 확인합니다.
 
+## 주간 예방접종 API 점검 (`check-vcninfo.yml`)
+
+앱의 예방접종 정보는 질병관리청 API(공공데이터포털 15084296)의 글을 사람이 구조화해 앱에 넣어 둔 정적 데이터라, 일정이 개정되어도 앱은 알 수 없습니다. 이 워크플로가 **매주 월요일**(한국 시간 12시) API를 다시 호출해 기준 스냅샷(`data/kdca-vcninfo-baseline.json`)과 비교합니다.
+
+- **변경이 없으면** 아무 일도 일어나지 않습니다(로그에 "변경 없음").
+- **변경이 있으면** 바뀐 감염병과 변경 부분을 담은 **이슈**를 만듭니다. 제목의 12자리 값(다이제스트)이 같은 변경은 한 번만 알립니다.
+- **점검 자체가 실패하면**(API 오류, 응답 형식 변경, 키 문제 등) 작업이 빨간색 실패가 되고 GitHub이 알림 메일을 보냅니다.
+- 필요한 설정: 저장소 **Settings → Secrets and variables → Actions → New repository secret**에 이름 `DATA_GO_KR_API_KEY`, 값은 공공데이터포털 일반 인증키(Encoding/Decoding 어느 쪽이든 됩니다). 이 값은 점검 단계의 환경변수로만 쓰이고 로그에 출력되지 않습니다.
+- **이슈를 받으면:** 원문으로 접종 일정 변경 여부를 확인하고, 영향이 있으면 BABYS 앱의 `vaccination.json`을 고쳐 앱을 새로 배포합니다. 확인이 끝나면 기준을 새 내용으로 바꿉니다.
+  ```bash
+  DATA_GO_KR_API_KEY=키 python tools/check_vcninfo.py --update-baseline    # 로컬에서, 키는 .env 에 두어도 됩니다
+  ```
+  그 뒤 `data/kdca-vcninfo-baseline.json`을 커밋·푸시합니다. 기준을 바꾸지 않으면 같은 변경은 다시 알리지 않고, 또 다른 변경이 생기면 새 이슈가 만들어집니다.
+- 처음 설정 후 Actions 탭에서 **Check vaccination API changes → Run workflow**로 한 번 실행해 "변경 없음"으로 성공하는지 확인합니다.
+
 ## 보안 메모
 
 - 이 저장소의 `docs/places.json`을 바꿀 수 있는 사람은 앱이 보여 주는 장소·전화번호를 바꿀 수 있습니다. 앱의 검증은 **형식만** 확인하므로(전화번호가 진짜인지는 모릅니다), 계정에 **2단계 인증**을 켜고 쓰기 권한을 가진 사람/토큰을 최소로 유지하세요.
-- 워크플로의 `actions/checkout@v4`, `actions/setup-python@v5`는 태그로 고정되어 있습니다. 더 엄격히 하려면 커밋 SHA로 고정하세요.
+- 워크플로의 `actions/checkout@v7`, `actions/setup-python@v7`은 태그로 고정되어 있고, 러너는 `ubuntu-24.04`로 고정했습니다(2026-10-19부터 `ubuntu-latest`가 Ubuntu 26으로 바뀐다는 GitHub 안내가 있었습니다). 더 엄격히 하려면 커밋 SHA로 고정하세요.
 - 앱은 https 주소만 받고, 사용자 정보·위치는 보내지 않습니다(User-Agent도 `BABYS`만). GitHub Pages 서버에는 접속 IP가 남을 수 있습니다(앱의 정보 이용 안내에 적혀 있습니다).
 
 ## 데이터 출처 표시

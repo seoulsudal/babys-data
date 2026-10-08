@@ -1,0 +1,53 @@
+name: Check vaccination API changes
+
+on:
+  schedule:
+    # 매주 월요일 UTC 03:00 (= 한국 시간 12:00)
+    - cron: "0 3 * * 1"
+  workflow_dispatch:   # Actions 탭에서 손으로 실행
+
+permissions:
+  contents: read       # 코드를 내려받는 데만 쓴다
+  issues: write        # 변경을 알리는 이슈를 만들려면 필요하다 (다른 권한은 주지 않는다)
+
+concurrency:
+  group: check-vcninfo
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # 질병관리청 예방접종 API(공공데이터포털 15084296)를 다시 호출해 기준 스냅샷과 비교한다.
+      # 인증키는 이 단계의 환경변수로만 전달하고 스크립트는 키를 출력하지 않는다.
+      # 종료코드: 0 변경 없음 / 10 변경 있음(이슈로 알림) / 그 밖은 점검 실패(작업이 실패로 표시되고 알림 메일이 간다)
+      - name: Check and notify
+        env:
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python tools/check_vcninfo.py --baseline data/kdca-vcninfo-baseline.json --report report.md --digest-file digest.txt
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$code" -ne 10 ]; then
+            echo "점검 실패(종료코드 $code)"
+            exit "$code"
+          fi
+          digest=$(cat digest.txt)
+          found=$(gh issue list --state all --search "$digest in:title" --json number --jq 'length')
+          if [ "$found" != "0" ]; then
+            echo "이미 알린 변경입니다($digest)"
+            exit 0
+          fi
+          gh issue create --title "예방접종 API 변경 감지 ($digest)" --body-file report.md
