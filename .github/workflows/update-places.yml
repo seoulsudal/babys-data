@@ -1,0 +1,42 @@
+name: Update places data
+
+on:
+  schedule:
+    # 서울시가 매월 3일에 갱신하므로 다음 날 낮(UTC 03:00 = 한국 시간 12:00)에 실행한다
+    - cron: "0 3 4 * *"
+  workflow_dispatch:   # Actions 탭에서 손으로 실행
+
+permissions:
+  contents: write      # docs/places.json 을 커밋하려면 필요하다 (다른 권한은 주지 않는다)
+
+concurrency:
+  group: update-places
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 인증키가 필요 없다(서울 열린데이터광장의 공개 조회). 응답 구조가 바뀌었거나 0건이거나
+      # 이전보다 절반 미만으로 줄었으면 이 단계가 실패하고 기존 docs/places.json 은 그대로 남는다.
+      - name: Fetch and validate places
+        run: python tools/fetch_places.py --out docs/places.json
+
+      - name: Commit when changed
+        run: |
+          if [ -z "$(git status --porcelain -- docs/places.json)" ]; then
+            echo "변경 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/places.json
+          git commit -m "data: places.json 갱신 ($(date -u +%F))"
+          git push

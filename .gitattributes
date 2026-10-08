@@ -1,0 +1,2 @@
+# GitHub Actions(리눅스)에서 셸 스크립트가 깨지지 않도록 이 폴더는 항상 LF 로 둔다 (윈도우의 CRLF 변환 방지)
+* text eol=lf
