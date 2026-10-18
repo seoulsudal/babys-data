@@ -1,0 +1,64 @@
+name: Update outing data
+
+on:
+  schedule:
+    # 행사는 날짜가 중요해 매일 갱신한다(UTC 21:00 = 한국 시간 06:00)
+    - cron: "0 21 * * *"
+  workflow_dispatch:   # Actions 탭에서 손으로 실행
+
+permissions:
+  contents: write      # docs/outing.json 을 커밋하려면 필요하다 (다른 권한은 주지 않는다)
+
+concurrency:
+  group: update-outing
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04   # ubuntu-latest 는 2026-10-19 부터 Ubuntu 26 으로 바뀌므로 고정한다
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # 수집 코드가 깨지지 않았는지 먼저 확인한다(인증키 없이, 가짜 서버로 흐름 전체를 시험한다)
+      - name: Test collector
+        run: node --test "scripts/*.test.mjs"
+
+      # TourAPI 상세 조회 결과를 실행 간에 재사용해 일일 호출 제한(개발계정 1,000회)을 아낀다
+      - uses: actions/cache/restore@v6
+        with:
+          path: data/outing-cache.json
+          key: outing-cache-${{ github.run_id }}
+          restore-keys: outing-cache-
+
+      # 수집이 0건이거나 지금 게시된 파일의 절반 미만이면 이 단계가 실패하고 기존 docs/outing.json 은 그대로 남는다.
+      - name: Fetch outing data
+        env:
+          # 공공데이터포털 일반 인증키: 예방접종 점검(check-vcninfo)과 같은 Secret. 한국관광공사 국문 관광정보 서비스 활용신청이 승인된 계정이어야 한다
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+          SEOUL_API_KEY: ${{ secrets.SEOUL_API_KEY }}
+        run: node scripts/fetch-outing.mjs
+
+      # 이후 단계가 실패해도 이미 쓴 API 호출 결과는 남기도록 항상 저장한다
+      - name: Save detail cache
+        if: always() && hashFiles('data/outing-cache.json') != ''
+        uses: actions/cache/save@v6
+        with:
+          path: data/outing-cache.json
+          key: outing-cache-${{ github.run_id }}
+
+      - name: Commit when changed
+        run: |
+          if [ -z "$(git status --porcelain -- docs/outing.json)" ]; then
+            echo "변경 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/outing.json
+          git commit -m "data: outing.json 갱신 ($(date -u +%F))"
+          git push

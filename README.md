@@ -1,4 +1,4 @@
-# babys-data (BABYS 장소 데이터)
+# babys-data (BABYS 장소·나들이 데이터)
 
 BABYS 앱이 내려받아 쓰는 **서울형 키즈카페 목록**(`docs/places.json`)을 매월 자동으로 갱신해 GitHub Pages로 게시하는 저장소입니다.
 이 폴더(`deploy/places-data/`)는 BABYS 저장소 안의 **복사해 갈 원본**이고, 실제로는 별도의 공개 저장소로 만들어 씁니다.
@@ -12,6 +12,7 @@ tools/check_vcninfo.py                예방접종 API 변경 점검 스크립�
 data/kdca-vcninfo-baseline.json     점검의 기준 스냅샷
 .github/workflows/check-vcninfo.yml   매주 점검 + 변경 시 이슈 알림
 docs/places.json                      게시되는 데이터 (Pages가 /docs 를 게시한다)
+(나들이 수집 파일은 아래 "나들이(장소·행사) 수집" 절을 보세요)
 docs/.nojekyll                        Jekyll 처리를 끈다
 ```
 
@@ -38,6 +39,54 @@ docs/.nojekyll                        Jekyll 처리를 끈다
 6. 아래 주소가 열리는지(JSON이 보이는지) 브라우저로 확인합니다.
    `https://<내 아이디>.github.io/babys-data/places.json`
 7. 위 주소를 Claude에게 알려 주면 앱에 연결하고(`PLACES_DATA_URL`) 실제 갱신까지 확인합니다.
+
+## 나들이(장소·행사) 수집 (`update-outing.yml`)
+
+BABYS 앱의 **나들이 탭**(수도권 아이 동반 장소·행사)과 홈의 "오늘 이용할 수 있는 곳"이 쓰는 `docs/outing.json`을 **매일 한국 시간 06:00**에 갱신합니다. 예전에는 `sub_project` 저장소가 수집했고, 이제 이 저장소가 수집·게시합니다(앱은 공공 API를 직접 부르지 않고 이 파일만 받습니다).
+
+```
+.github/workflows/update-outing.yml   매일(+수동) 시험 → 수집 → 바뀌었을 때만 커밋
+scripts/outing-lib.mjs                선택 기준·정규화 같은 순수 함수 (키워드로 아이 동반 장소·행사를 고른다)
+scripts/fetch-outing.mjs              TourAPI·서울 API 호출, 캐시, 안전장치, 저장
+scripts/*.test.mjs                    수집 코드 시험 (가짜 API 서버로 흐름 전체를 시험, 인증키·네트워크 불필요)
+data/outing-overrides.json            직접 보정: add(수집에 없는 곳 추가) / patch(id별 덮어쓰기) / exclude(뺄 id)
+data/outing-cache.json                TourAPI 상세 조회 결과 (Actions 캐시로만 보관, 커밋하지 않는다)
+docs/outing.json                      게시되는 데이터
+```
+
+### 필요한 설정 (사용자)
+
+1. 저장소 **Settings → Secrets and variables → Actions → New repository secret**에 두 개를 등록합니다. 값은 로그에 출력되지 않습니다.
+   - `SEOUL_API_KEY`: 서울 열린데이터광장 인증키
+   - `DATA_GO_KR_API_KEY`: 공공데이터포털 일반 인증키 — 예방접종 점검(`check-vcninfo`)에 이미 등록해 둔 것을 **그대로** 씁니다(새로 만들지 않습니다). 일반 인증키는 계정 하나로 승인된 API 전부에 쓰이므로, **한국관광공사 「국문 관광정보 서비스」 활용신청이 그 키의 계정에서 승인되어 있어야 합니다.**
+   (한쪽 키만 있어도 그 소스만 수집하지만, 결과가 지금 게시된 건수의 절반 미만이면 파일을 갱신하지 않고 실패합니다.)
+2. 위 `places` 안내의 3·4번(Pages `/docs`, Workflow permissions *Read and write*)이 이미 되어 있으면 추가 설정은 없습니다.
+3. **Actions 탭 → Update outing data → Run workflow**로 한 번 수동 실행해 초록색(성공)인지 확인합니다.
+4. 아래 주소가 열리는지 브라우저로 확인합니다: `https://<내 아이디>.github.io/babys-data/outing.json`
+5. 주소를 Claude에게 알려 주면 앱의 `OUTING_DATA_URL`을 바꿉니다(그 전에 바꾸면 앱이 404를 받아 번들 데이터로만 동작합니다).
+6. 앱 연결을 확인한 뒤 **`sub_project`의 예약 수집을 멈춥니다**(`update-data.yml`의 `schedule:` 삭제 또는 저장소 보관). 같은 인증키의 하루 호출 한도(TourAPI 개발계정 1,000회)를 두 저장소가 나눠 쓰지 않게 하려는 것입니다.
+
+### 동작과 안전장치
+
+- 앱이 쓰는 필드(제목·지역·주소·좌표·기간·공식 사이트·전화·요약·출처)만 만듭니다. **이미지와, 글에서 추정한 연령·무료·실내는 만들지 않습니다.**
+- 수집 결과가 **0건이거나 지금 게시된 파일의 절반 미만이면** 파일을 덮어쓰지 않고 작업이 실패합니다(앱은 기존 데이터를 계속 씁니다). 앱도 받은 파일을 다시 검증합니다.
+- 내용이 그대로면 파일을 건드리지 않고, 바뀌었을 때만 `updatedAt`을 새로 적어 커밋합니다 → 앱의 "자료 기준일"은 **마지막으로 내용이 바뀐 날**입니다.
+- TourAPI 개발계정은 하루 1,000회라 호출 상한(`MAX_TOUR_CALLS`, 기본 850)을 두고, 상세 조회는 캐시에 저장해 **다음 날 이어서 채웁니다.** 장소는 한 건당 1회, 행사는 2회입니다. 캐시가 비어 있는 **처음 며칠은** 장소가 일부만 들어갈 수 있고, 앱은 지금보다 절반 미만이면 받지 않아 번들 데이터를 지킵니다.
+- 휴대전화 번호(010 등)는 개인 번호일 수 있어 뺍니다. 외부 주소는 http(s)만 남깁니다.
+- 수집 코드를 고쳤을 때는 `node --test "scripts/*.test.mjs"`를 돌립니다(워크플로도 수집 전에 같은 시험을 돌려 깨졌으면 멈춥니다).
+
+### 데이터 출처 표시
+
+- 서울 열린데이터광장 「서울시 문화행사 정보」(서울특별시, **공공누리 제1유형: 출처표시, 상업적 이용·변경 가능**, 원본: 서울문화포털).
+- 한국관광공사 「국문 관광정보 서비스」(공공데이터포털, 이용허락범위 제한 없음). **사진은 공공누리 1·3유형이 섞여 있어 쓰지 않습니다.**
+- 항목마다 `source`(`tour`/`seoul`)가 들어 있고 앱이 출처와 기준일을 함께 보여 줍니다.
+
+### 수동 점검
+
+```bash
+node --test "scripts/*.test.mjs"                  # 수집 코드 시험 (키 불필요)
+DATA_GO_KR_API_KEY=키 SEOUL_API_KEY=키 node scripts/fetch-outing.mjs --dry   # 실제 호출로 요약만 확인 (TourAPI 호출이 실제로 일어난다. 저장 안 함)
+```
 
 ## 주간 예방접종 API 점검 (`check-vcninfo.yml`)
 
