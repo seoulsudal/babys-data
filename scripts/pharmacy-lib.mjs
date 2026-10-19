@@ -1,5 +1,6 @@
 // 달빛병원 근처 약국 분류용 순수 함수(국립중앙의료원 「전국 약국 정보 조회 서비스」 응답 → 분류).
-import { hoursOf } from "./moonlight-lib.mjs";
+import { hoursOf, sidoOf } from "./moonlight-lib.mjs";
+import { stripHtml } from "./outing-lib.mjs";
 
 const EARTH_M = 6371000;
 const toRad = (d) => (d * Math.PI) / 180;
@@ -126,4 +127,34 @@ export function uniqueNearby(rows, radii) {
     };
   }
   return out;
+}
+
+/** 좌표 기준 반경(m) 안에서 가장 가까운 달빛병원 {id, name, meters(반올림)}, 없으면 null. 좌표 없는 병원은 무시한다. */
+export function nearestHospital(lat, lng, hospitals, maxMeters) {
+  let best = null;
+  for (const h of hospitals) {
+    if (h.lat == null || h.lng == null) continue;
+    const m = distanceMeters(lat, lng, h.lat, h.lng);
+    if (m <= maxMeters && (!best || m < best.m)) best = { id: h.id, name: h.name, m };
+  }
+  return best && { id: best.id, name: best.name, meters: Math.round(best.m) };
+}
+
+/** 약국 목록 응답 한 줄 → 앱 모양. 기관ID·이름·주소·시도를 알 수 없으면 null(건너뛴다). 휴대전화(010 등)는 개인 번호일 수 있어 뺀다. */
+export function pharmacyItem(raw, near) {
+  const id = String(raw.hpid ?? "").trim();
+  const name = stripHtml(raw.dutyName ?? "").trim();
+  const address = String(raw.dutyAddr ?? "").replace(/\s+/g, " ").trim();
+  const sido = sidoOf(address);
+  if (!id || !name || !address || !sido) return null;
+  const tel = stripHtml(raw.dutyTel1 ?? "").trim();
+  const m = address.match(/^\S+\s+(\S+)/);
+  return {
+    id, name, address, sido,
+    district: m ? m[1] : null,
+    lat: Number(raw.wgs84Lat), lng: Number(raw.wgs84Lon),
+    tel: tel && !tel.replace(/\D/g, "").startsWith("01") ? tel : null,
+    hours: hoursOfRaw(raw),
+    near,
+  };
 }

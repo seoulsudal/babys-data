@@ -1,0 +1,49 @@
+name: Update pharmacy data
+
+on:
+  schedule:
+    # 달빛병원 수집(00:20) 뒤에 돌아 최신 달빛병원 기준으로 약국을 고른다(UTC 15:25 = 한국 시간 00:25. 정각은 예약이 몰려 늦게 시작하므로 비켜 둔다)
+    - cron: "25 15 * * *"
+  workflow_dispatch:   # Actions 탭에서 손으로 실행
+
+permissions:
+  contents: write      # docs/pharmacy.json 을 커밋하려면 필요하다 (다른 권한은 주지 않는다)
+
+concurrency:
+  group: update-pharmacy
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04   # ubuntu-latest 는 바뀔 수 있어 고정한다
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # 수집 코드가 깨지지 않았는지 먼저 확인한다(인증키 없이, 가짜 서버로 흐름 전체를 시험한다)
+      - name: Test collector
+        run: node --test "scripts/*.test.mjs"
+
+      # 수집이 0건이거나 지금 게시된 파일의 절반 미만이면 이 단계가 실패하고 기존 docs/pharmacy.json 은 그대로 남는다.
+      - name: Fetch pharmacy data
+        env:
+          # 공공데이터포털 일반 인증키(나들이·달빛병원 수집과 같은 Secret). 「전국 약국 정보 조회 서비스」 활용신청이 승인된 계정이어야 한다
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+        run: node scripts/fetch-pharmacy.mjs
+
+      - name: Commit when changed
+        run: |
+          if [ -z "$(git status --porcelain -- docs/pharmacy.json)" ]; then
+            echo "변경 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/pharmacy.json
+          git commit -m "data: pharmacy.json 갱신 ($(date -u +%F))"
+          git pull --rebase origin main    # 다른 수집 작업이 먼저 올렸어도 이어 붙인다
+          git push

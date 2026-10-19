@@ -1,7 +1,7 @@
 // 약국 탐색(달빛병원 근처 약국 분류) 순수 함수 시험. 아래 약국·좌표는 모두 검증용 가상 값이며 실제 약국이 아니다.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize, countDistribution, uniqueNearby } from "./pharmacy-lib.mjs";
+import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize, countDistribution, uniqueNearby, nearestHospital, pharmacyItem } from "./pharmacy-lib.mjs";
 
 test("두 좌표 사이의 직선거리(m)", () => {
   assert.equal(Math.round(distanceMeters(37.5, 127.0, 37.5, 127.0)), 0);
@@ -94,5 +94,39 @@ test("전체 합계: 여러 병원 근처에서 겹치는 약국을 한 번만 �
   const u = uniqueNearby(rows, [500, 1000]);
   assert.deepEqual(u[500], { all: 3, after18: 3, after20: 2, after22: 1, midnight: 0, weekend: 1, holiday: 1 });       // P1(병원A 100m·병원B 300m 에서 겹침, 한 번만), P5(400m), P6(450m, 정확히 20시에 종료 → 20시 이후까지에 든다)
   assert.deepEqual(u[1000], { all: 5, after18: 4, after20: 2, after22: 1, midnight: 0, weekend: 1, holiday: 1 });      // P1, P2, P3, P5 (P4 는 1.5km)
+});
+
+const HOSPITALS = [
+  { id: "H1", name: "병원A", lat: 37.5, lng: 127.0 },
+  { id: "H2", name: "병원B", lat: 37.6, lng: 127.0 },
+  { id: "H3", name: "좌표없음", lat: null, lng: null },
+];
+
+test("가장 가까운 달빛병원: 반경 안이면 병원과 거리(m, 반올림), 밖이면 null, 좌표 없는 병원은 무시", () => {
+  const n = nearestHospital(37.5009, 127.0, HOSPITALS, 1000);          // 병원A 에서 약 100m
+  assert.equal(n.id, "H1");
+  assert.equal(n.name, "병원A");
+  assert.ok(Number.isInteger(n.meters) && n.meters >= 95 && n.meters <= 105, String(n.meters));
+  assert.equal(nearestHospital(37.55, 127.0, HOSPITALS, 1000), null);   // 병원A 에서 약 5.5km
+  assert.equal(nearestHospital(37.5, 127.0, [HOSPITALS[2]], 1000), null);
+  assert.equal(nearestHospital(37.57, 127.0, HOSPITALS, 8000).id, "H2");  // 병원B(약 3.3km)가 병원A(약 7.8km)보다 가깝다
+});
+
+test("약국 항목 변환: 앱이 쓰는 필드만, 시각은 8칸, 시도·시군구는 주소에서, 공백 정리", () => {
+  const raw = {
+    hpid: "C1", dutyName: " 가나 온누리약국 ", dutyAddr: "서울특별시 가나구   시험로 5 (시험동)", dutyTel1: "02-123-4567",
+    dutyTime1s: 900, dutyTime1c: 2200, dutyTime2s: "0900", dutyTime2c: 2200, dutyTime6s: "0900", dutyTime6c: 1400,
+    wgs84Lat: 37.5009, wgs84Lon: 127.0, rnum: 1, postCdn1: 100,
+  };
+  const near = { id: "H1", name: "병원A", meters: 100 };
+  assert.deepEqual(pharmacyItem(raw, near), {
+    id: "C1", name: "가나 온누리약국", address: "서울특별시 가나구 시험로 5 (시험동)", sido: "서울", district: "가나구",
+    lat: 37.5009, lng: 127.0, tel: "02-123-4567",
+    hours: ["0900-2200", "0900-2200", null, null, null, "0900-1400", null, null],
+    near,
+  });
+  assert.equal(pharmacyItem({ ...raw, hpid: "" }, near), null);                                      // 기관ID 없음
+  assert.equal(pharmacyItem({ ...raw, dutyName: " " }, near), null);                                 // 이름 없음
+  assert.equal(pharmacyItem({ ...raw, dutyTel1: "010-1234-5678" }, near).tel, null);                 // 휴대전화는 쓰지 않는다
 });
 
