@@ -1,0 +1,28 @@
+name: Probe pharmacy near moonlight hospitals
+
+# 달빛병원 근처 약국 분류 탐색. 손으로만 실행하고(예약 없음), 보고서를 로그에만 출력한다 — 파일을 만들거나 커밋하지 않는다.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Test collector
+        run: node --test "scripts/*.test.mjs"
+
+      - name: Probe pharmacies
+        env:
+          # 공공데이터포털 일반 인증키(나들이·달빛병원 수집과 같은 Secret). 「전국 약국 정보 조회 서비스」 활용신청이 승인된 계정이어야 한다
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+        run: node scripts/probe-pharmacy.mjs

@@ -48,7 +48,7 @@ test("시도 이름을 짧게 맞춘다", () => {
 
 const raw = {
   hpid: "A0000001", dutyName: " 가나 아동병원 ", dutyDivNam: "병원", dutyAddr: "서울특별시 가나구 시험로 1 (시험동)",
-  dutyTel1: "02-111-2222", dutyTel3: "02-111-3333", dutyEtc: "야간 진료는 전화 확인", dutyInf: "소아 전문 <b>병원</b>",
+  dutyTel1: "02-111-2222", dutyEtc: "야간 진료는 전화 확인", dutyInf: "소아 전문 <b>병원</b>",
   wgs84Lat: "37.5", wgs84Lon: "127.0",
   dutyTime1s: "0900", dutyTime1c: "2300", dutyTime2s: "0900", dutyTime2c: "2300", dutyTime7s: "1000", dutyTime7c: "2400", dutyTime8s: "0900", dutyTime8c: "1800",
 };
@@ -57,7 +57,7 @@ test("항목 변환: 앱이 쓰는 필드만 만들고 진료시간은 월~일·
   const h = hospitalItem(raw);
   assert.deepEqual(h, {
     id: "A0000001", name: "가나 아동병원", kind: "병원", address: "서울특별시 가나구 시험로 1 (시험동)", sido: "서울", district: "가나구",
-    lat: 37.5, lng: 127.0, tel: "02-111-2222", emergencyTel: "02-111-3333", note: "야간 진료는 전화 확인", info: "소아 전문 병원",
+    lat: 37.5, lng: 127.0, tel: "02-111-2222", note: "야간 진료는 전화 확인", info: "소아 전문 병원",
     hours: ["0900-2300", "0900-2300", null, null, null, null, "1000-2400", "0900-1800"],
   });
 });

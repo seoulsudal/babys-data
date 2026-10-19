@@ -65,7 +65,7 @@ const clean = (v, max) => {
   return s ? s.slice(0, max) : null;
 };
 
-function hoursOf(raw) {
+export function hoursOf(raw) {
   return Array.from({ length: DAY_COUNT }, (_, i) => {
     const open = String(raw[`dutyTime${i + 1}s`] ?? "").trim(), close = String(raw[`dutyTime${i + 1}c`] ?? "").trim();
     return HHMM.test(open) && HHMM.test(close) ? `${open}-${close}` : null;
@@ -86,7 +86,6 @@ export function hospitalItem(raw) {
     district: m ? m[1] : null,
     lat, lng,
     tel: clean(raw.dutyTel1, 30),
-    emergencyTel: clean(raw.dutyTel3, 30),
     note: clean(raw.dutyEtc, 300),
     info: clean(raw.dutyInf, 300),
     hours: hoursOf(raw),

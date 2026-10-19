@@ -1,0 +1,49 @@
+// 약국 탐색(달빛병원 근처 약국 분류) 순수 함수 시험. 아래 약국·좌표는 모두 검증용 가상 값이며 실제 약국이 아니다.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize } from "./pharmacy-lib.mjs";
+
+test("두 좌표 사이의 직선거리(m)", () => {
+  assert.equal(Math.round(distanceMeters(37.5, 127.0, 37.5, 127.0)), 0);
+  const d = distanceMeters(37.5, 127.0, 37.5009, 127.0);          // 위도 0.0009° ≈ 100m
+  assert.ok(d > 95 && d < 105, String(d));
+  const e = distanceMeters(37.5, 127.0, 37.5, 127.0011);          // 경도 0.0011° ≈ 97m (위도 37.5°)
+  assert.ok(e > 90 && e < 105, String(e));
+});
+
+test("요일별 시각 8칸을 읽는다(월~일·공휴일, 형식이 틀리면 null)", () => {
+  const h = hoursOfRaw({ dutyTime1s: "0900", dutyTime1c: "2100", dutyTime6s: "0900", dutyTime6c: "1800", dutyTime8s: "9시", dutyTime8c: "1800" });
+  assert.deepEqual(h, ["0900-2100", null, null, null, null, "0900-1800", null, null]);
+});
+
+test("분류: 평일 18시 이후·22시 이후·주말·공휴일 운영 여부", () => {
+  const night = ["0900-2300", "0900-2300", "0900-2300", "0900-2300", "0900-2300", "0900-1800", null, null];
+  assert.deepEqual(classifyHours(night), { weekdayAfter18: true, weekdayAfter22: true, weekend: true, holiday: false });
+  const day = ["0900-1800", "0900-1800", "0900-1800", "0900-1800", "0900-1800", null, null, null];
+  assert.deepEqual(classifyHours(day), { weekdayAfter18: false, weekdayAfter22: false, weekend: false, holiday: false });     // 종료 18:00 정각은 "이후"가 아니다
+  const mid = ["0900-1830", null, null, null, null, null, null, "1000-1500"];
+  assert.deepEqual(classifyHours(mid), { weekdayAfter18: true, weekdayAfter22: false, weekend: false, holiday: true });
+  assert.deepEqual(classifyHours(Array(8).fill(null)), { weekdayAfter18: false, weekdayAfter22: false, weekend: false, holiday: false });
+  assert.equal(classifyHours(["0900-2400", ...Array(7).fill(null)]).weekdayAfter22, true);
+  assert.equal(classifyHours(["1000-0200", ...Array(7).fill(null)]).weekdayAfter22, true);                                     // 자정을 넘겨 다음 날 02:00까지                                     // 24:00(자정)까지
+});
+
+test("약국 식별: hpid 가 있으면 그것, 없으면 이름+주소", () => {
+  assert.equal(pharmacyKey({ hpid: "C1", dutyName: "가 약국", dutyAddr: "서울 가나구 1" }), "C1");
+  assert.equal(pharmacyKey({ dutyName: " 가 약국 ", dutyAddr: "서울 가나구 1" }), "가 약국|서울 가나구 1");
+  assert.equal(pharmacyKey({}), null);
+});
+
+test("요약: 병원마다 반경 안 약국을 분류해 세고, 한 곳도 없는 병원을 따로 센다", () => {
+  const rows = [
+    { name: "병원A", pharmacies: [{ meters: 300, c: { weekdayAfter18: true, weekdayAfter22: true, weekend: true, holiday: true } }, { meters: 800, c: { weekdayAfter18: true, weekdayAfter22: false, weekend: false, holiday: false } }] },
+    { name: "병원B", pharmacies: [{ meters: 400, c: { weekdayAfter18: false, weekdayAfter22: false, weekend: true, holiday: false } }] },
+    { name: "병원C", pharmacies: [] },
+  ];
+  const s = summarize(rows, [500, 1000]);
+  assert.equal(s.hospitals, 3);
+  assert.deepEqual(s.byRadius[500], { anyPharmacy: 2, weekdayAfter18: 1, weekdayAfter22: 1, weekend: 2, holiday: 1 });
+  assert.deepEqual(s.byRadius[1000], { anyPharmacy: 2, weekdayAfter18: 1, weekdayAfter22: 1, weekend: 2, holiday: 1 });
+  assert.deepEqual(s.noWeekdayAfter18Within1000, ["병원B", "병원C"]);
+  assert.equal(s.perHospitalAfter18Within1000.A, undefined);
+});
