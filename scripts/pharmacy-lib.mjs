@@ -104,3 +104,26 @@ export function countDistribution(counts) {
   const sorted = [...counts].sort((a, b) => a - b);
   return { buckets, max: sorted.length ? sorted[sorted.length - 1] : 0, median: sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0 };
 }
+
+/**
+ * 병원 전체 기준으로 반경(m) 안 약국을 **중복 없이** 센다(여러 병원 근처에서 겹치는 약국은 한 번만).
+ * rows: [{ pharmacies: [{ key, meters, c }] }]. 종료 시각은 평일(월~금) 기준: after18 = 18시 넘어서까지, after20 = 20시 이후까지, after22 = 22시 이후까지, midnight = 24시(자정)까지.
+ */
+export function uniqueNearby(rows, radii) {
+  const out = {};
+  for (const r of radii) {
+    const seen = new Map();
+    for (const row of rows) for (const p of row.pharmacies) if (p.meters <= r && !seen.has(p.key)) seen.set(p.key, p.c);
+    const cs = [...seen.values()];
+    out[r] = {
+      all: cs.length,
+      after18: cs.filter((c) => c.weekdayAfter18).length,
+      after20: cs.filter((c) => c.maxClose >= 2000).length,
+      after22: cs.filter((c) => c.weekdayAfter22).length,
+      midnight: cs.filter((c) => c.maxClose >= 2400).length,
+      weekend: cs.filter((c) => c.weekend).length,
+      holiday: cs.filter((c) => c.holiday).length,
+    };
+  }
+  return out;
+}

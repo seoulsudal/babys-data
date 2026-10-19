@@ -1,7 +1,7 @@
 // 약국 탐색(달빛병원 근처 약국 분류) 순수 함수 시험. 아래 약국·좌표는 모두 검증용 가상 값이며 실제 약국이 아니다.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize, countDistribution } from "./pharmacy-lib.mjs";
+import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize, countDistribution, uniqueNearby } from "./pharmacy-lib.mjs";
 
 test("두 좌표 사이의 직선거리(m)", () => {
   assert.equal(Math.round(distanceMeters(37.5, 127.0, 37.5, 127.0)), 0);
@@ -80,5 +80,19 @@ test("분포: 병원별 약국 수를 구간으로 나누고 최댓값·중앙�
   assert.equal(d.max, 57);
   assert.equal(d.median, 9);                       // 정렬한 뒤 가운데(짝수 개면 위쪽) 값
   assert.deepEqual(countDistribution([]), { buckets: { "0곳": 0, "1~4곳": 0, "5~9곳": 0, "10~19곳": 0, "20곳 이상": 0 }, max: 0, median: 0 });
+});
+
+test("전체 합계: 여러 병원 근처에서 겹치는 약국을 한 번만 세고, 종료 시각·주말·공휴일 기준별로 센다", () => {
+  const c = (o) => ({ weekdayAfter18: false, weekdayAfter22: false, weekend: false, holiday: false, maxClose: 0, ...o });
+  const late = c({ weekdayAfter18: true, weekdayAfter22: true, weekend: true, holiday: true, maxClose: 2300 });
+  const mid = c({ weekdayAfter18: true, maxClose: 1900 });
+  const early = c({ maxClose: 1700 });
+  const rows = [
+    { name: "병원A", pharmacies: [{ key: "P1", meters: 100, c: late }, { key: "P2", meters: 700, c: mid }, { key: "P3", meters: 900, c: early }] },
+    { name: "병원B", pharmacies: [{ key: "P1", meters: 300, c: late }, { key: "P4", meters: 1500, c: late }, { key: "P5", meters: 400, c: mid }, { key: "P6", meters: 450, c: c({ weekdayAfter18: true, maxClose: 2000 }) }] },
+  ];
+  const u = uniqueNearby(rows, [500, 1000]);
+  assert.deepEqual(u[500], { all: 3, after18: 3, after20: 2, after22: 1, midnight: 0, weekend: 1, holiday: 1 });       // P1(병원A 100m·병원B 300m 에서 겹침, 한 번만), P5(400m), P6(450m, 정확히 20시에 종료 → 20시 이후까지에 든다)
+  assert.deepEqual(u[1000], { all: 5, after18: 4, after20: 2, after22: 1, midnight: 0, weekend: 1, holiday: 1 });      // P1, P2, P3, P5 (P4 는 1.5km)
 });
 
