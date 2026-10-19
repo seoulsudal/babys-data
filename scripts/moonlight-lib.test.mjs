@@ -75,3 +75,12 @@ test("항목 변환: 기관ID나 이름이 없으면 건너뛴다", () => {
   assert.equal(hospitalItem({ ...raw, dutyName: "  " }), null);
   assert.equal(hospitalItem({ ...raw, dutyAddr: "" }), null);
 });
+
+test("JSON 오류 응답(response 없이 코드·메시지만 오는 모양)은 빈 목록이 아니라 오류로 던진다", () => {
+  const quota = JSON.stringify({ resultCode: "22", resultMsg: "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR." });
+  assert.throws(() => parseApiBody(quota), (e) => /22/.test(e.message) && /LIMITED_NUMBER/.test(e.message));
+  const gateway = JSON.stringify({ cmmMsgHeader: { errMsg: "SERVICE ERROR", returnReasonCode: "30", returnAuthMsg: "SERVICE_KEY_IS_NOT_REGISTERED_ERROR" } });
+  assert.throws(() => parseApiBody(gateway), (e) => /30/.test(e.message) && /SERVICE_KEY_IS_NOT_REGISTERED_ERROR/.test(e.message));
+  assert.throws(() => parseApiBody(JSON.stringify({ foo: 1 })), (e) => /응답 구조/.test(e.message) && /foo/.test(e.message));          // 모르는 모양은 최상위 키 이름만 알린다
+});
+

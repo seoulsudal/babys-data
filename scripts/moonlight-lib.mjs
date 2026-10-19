@@ -36,7 +36,14 @@ export function parseApiBody(text) {
 }
 
 function parseJson(j) {
-  const header = j?.response?.header, body = j?.response?.body ?? {};
+  // 게이트웨이 오류는 response 없이 코드·메시지만 오기도 한다(호출 한도 초과 등) — 빈 목록으로 읽지 않고 오류로 알린다
+  if (!j?.response) {
+    const gw = j?.cmmMsgHeader;
+    if (gw) throw new Error(`API 오류 ${gw.returnReasonCode ?? "?"} ${gw.returnAuthMsg ?? gw.errMsg ?? ""}`.trim());
+    if (j?.resultCode !== undefined) throw new Error(`API 오류 ${j.resultCode} ${j.resultMsg ?? ""}`.trim());
+    throw new Error(`API 응답 구조가 다르다(최상위 키: ${Object.keys(j ?? {}).join(", ") || "없음"})`);
+  }
+  const header = j.response.header, body = j.response.body ?? {};
   const code = header?.resultCode ?? "00";
   if (code !== "00") throw new Error(`API 오류 ${code} ${header?.resultMsg ?? ""}`.trim());
   const raw = body.items?.item ?? [];

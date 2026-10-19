@@ -49,6 +49,10 @@ async function main() {
 
   const api = createApi({ base: BASE, key, maxCalls: MAX_CALLS });
   const { items: rows, total } = await listAllPharmacies(api, PAGE_SIZE);
+  if (rows.length === 0) {
+    console.error("약국 목록이 비어 있습니다. 하루 호출 한도(개발계정 1,000건) 초과나 서비스 점검일 수 있으니 잠시 뒤 다시 실행하세요.");
+    process.exit(1);
+  }
 
   const seen = new Set();
   const items = [];

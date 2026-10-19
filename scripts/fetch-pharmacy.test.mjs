@@ -103,6 +103,7 @@ test("0건이거나 지금 게시된 건수의 절반 미만이면 실패하고 
   try {
     const r = await run(root, empty.port);
     assert.notEqual(r.code, 0);
+    assert.match(r.out, /약국 목록이 비어 있습니다/);                                          // 호출 한도 초과·점검 같은 원인을 짐작하게 알린다
     assert.equal((await readOut(root)).items.length, 5);
   } finally { empty.server.close(); await rm(root, { recursive: true, force: true }); }
   const ok = await fakeServer();
