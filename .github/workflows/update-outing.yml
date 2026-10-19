@@ -2,8 +2,8 @@ name: Update outing data
 
 on:
   schedule:
-    # 행사는 날짜가 중요해 매일 갱신한다(UTC 21:00 = 한국 시간 06:00)
-    - cron: "0 21 * * *"
+    # 행사는 날짜가 중요해 매일 갱신한다(UTC 03:07 = 한국 시간 12:07. 정각은 GitHub 예약이 몰려 늦게 시작하므로 7분으로 비켜 둔다)
+    - cron: "7 3 * * *"
   workflow_dispatch:   # Actions 탭에서 손으로 실행
 
 permissions:
