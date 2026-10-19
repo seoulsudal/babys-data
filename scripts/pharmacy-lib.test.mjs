@@ -11,21 +11,26 @@ test("두 좌표 사이의 직선거리(m)", () => {
   assert.ok(e > 90 && e < 105, String(e));
 });
 
-test("요일별 시각 8칸을 읽는다(월~일·공휴일, 형식이 틀리면 null)", () => {
+test("요일별 시각 8칸을 읽는다(월~일·공휴일, 형식이 틀리면 null, 숫자로 온 시각도 읽는다)", () => {
   const h = hoursOfRaw({ dutyTime1s: "0900", dutyTime1c: "2100", dutyTime6s: "0900", dutyTime6c: "1800", dutyTime8s: "9시", dutyTime8c: "1800" });
   assert.deepEqual(h, ["0900-2100", null, null, null, null, "0900-1800", null, null]);
+  // 실제 응답은 숫자(1900)와 앞자리 0이 있는 문자열("0900")이 섞여 오고, 앞자리 0이 빠진 숫자(900)도 올 수 있다
+  const mixed = hoursOfRaw({ dutyTime1s: 1000, dutyTime1c: 1900, dutyTime2s: 900, dutyTime2c: 1800, dutyTime6s: "0900", dutyTime6c: 1400 });
+  assert.deepEqual(mixed, ["1000-1900", "0900-1800", null, null, null, "0900-1400", null, null]);
 });
 
-test("분류: 평일 18시 이후·22시 이후·주말·공휴일 운영 여부", () => {
+test("분류: 평일 18시 이후·22시 이후·주말·공휴일 운영 여부와 평일 종료 시각의 최댓값", () => {
   const night = ["0900-2300", "0900-2300", "0900-2300", "0900-2300", "0900-2300", "0900-1800", null, null];
-  assert.deepEqual(classifyHours(night), { weekdayAfter18: true, weekdayAfter22: true, weekend: true, holiday: false });
+  assert.deepEqual(classifyHours(night), { weekdayAfter18: true, weekdayAfter22: true, weekend: true, holiday: false, maxClose: 2300 });
   const day = ["0900-1800", "0900-1800", "0900-1800", "0900-1800", "0900-1800", null, null, null];
-  assert.deepEqual(classifyHours(day), { weekdayAfter18: false, weekdayAfter22: false, weekend: false, holiday: false });     // 종료 18:00 정각은 "이후"가 아니다
+  assert.deepEqual(classifyHours(day), { weekdayAfter18: false, weekdayAfter22: false, weekend: false, holiday: false, maxClose: 1800 });     // 종료 18:00 정각은 "이후"가 아니다
   const mid = ["0900-1830", null, null, null, null, null, null, "1000-1500"];
-  assert.deepEqual(classifyHours(mid), { weekdayAfter18: true, weekdayAfter22: false, weekend: false, holiday: true });
-  assert.deepEqual(classifyHours(Array(8).fill(null)), { weekdayAfter18: false, weekdayAfter22: false, weekend: false, holiday: false });
-  assert.equal(classifyHours(["0900-2400", ...Array(7).fill(null)]).weekdayAfter22, true);
-  assert.equal(classifyHours(["1000-0200", ...Array(7).fill(null)]).weekdayAfter22, true);                                     // 자정을 넘겨 다음 날 02:00까지                                     // 24:00(자정)까지
+  assert.deepEqual(classifyHours(mid), { weekdayAfter18: true, weekdayAfter22: false, weekend: false, holiday: true, maxClose: 1830 });
+  assert.deepEqual(classifyHours(Array(8).fill(null)), { weekdayAfter18: false, weekdayAfter22: false, weekend: false, holiday: false, maxClose: 0 });
+  assert.equal(classifyHours(["0900-2400", ...Array(7).fill(null)]).weekdayAfter22, true);                                                      // 24:00(자정)까지
+  const overnight = classifyHours(["1000-0200", ...Array(7).fill(null)]);                                                                         // 자정을 넘겨 다음 날 02:00까지
+  assert.equal(overnight.weekdayAfter22, true);
+  assert.equal(overnight.maxClose, 2600);
 });
 
 test("약국 식별: hpid 가 있으면 그것, 없으면 이름+주소", () => {
@@ -34,16 +39,25 @@ test("약국 식별: hpid 가 있으면 그것, 없으면 이름+주소", () => 
   assert.equal(pharmacyKey({}), null);
 });
 
-test("요약: 병원마다 반경 안 약국을 분류해 세고, 한 곳도 없는 병원을 따로 센다", () => {
+test("요약: 병원마다 반경 안 약국을 분류해 세고, 가장 늦게 끝나는 약국으로 병원을 나눈다", () => {
+  const c = (o) => ({ weekdayAfter18: false, weekdayAfter22: false, weekend: false, holiday: false, maxClose: 0, ...o });
   const rows = [
-    { name: "병원A", pharmacies: [{ meters: 300, c: { weekdayAfter18: true, weekdayAfter22: true, weekend: true, holiday: true } }, { meters: 800, c: { weekdayAfter18: true, weekdayAfter22: false, weekend: false, holiday: false } }] },
-    { name: "병원B", pharmacies: [{ meters: 400, c: { weekdayAfter18: false, weekdayAfter22: false, weekend: true, holiday: false } }] },
+    { name: "병원A", pharmacies: [
+      { meters: 300, c: c({ weekdayAfter18: true, weekdayAfter22: true, weekend: true, holiday: true, maxClose: 2300 }) },
+      { meters: 800, c: c({ weekdayAfter18: true, maxClose: 1900 }) },
+    ] },
+    { name: "병원B", pharmacies: [
+      { meters: 400, c: c({ weekend: true, maxClose: 1800 }) },
+      { meters: 900, c: c({ weekdayAfter18: true, maxClose: 2100 }) },
+    ] },
     { name: "병원C", pharmacies: [] },
   ];
   const s = summarize(rows, [500, 1000]);
   assert.equal(s.hospitals, 3);
   assert.deepEqual(s.byRadius[500], { anyPharmacy: 2, weekdayAfter18: 1, weekdayAfter22: 1, weekend: 2, holiday: 1 });
-  assert.deepEqual(s.byRadius[1000], { anyPharmacy: 2, weekdayAfter18: 1, weekdayAfter22: 1, weekend: 2, holiday: 1 });
-  assert.deepEqual(s.noWeekdayAfter18Within1000, ["병원B", "병원C"]);
-  assert.equal(s.perHospitalAfter18Within1000.A, undefined);
+  assert.deepEqual(s.byRadius[1000], { anyPharmacy: 2, weekdayAfter18: 2, weekdayAfter22: 1, weekend: 2, holiday: 1 });
+  assert.deepEqual(s.closeBuckets[500], { none: 1, noLate: 1, b18to20: 0, b20to22: 0, b22plus: 1 });
+  assert.deepEqual(s.closeBuckets[1000], { none: 1, noLate: 0, b18to20: 0, b20to22: 1, b22plus: 1 });
+  assert.deepEqual(s.noWeekdayAfter18Within1000, ["병원C"]);
+  assert.deepEqual(s.perHospitalAfter18Within1000, { 병원A: 2, 병원B: 1, 병원C: 0 });
 });

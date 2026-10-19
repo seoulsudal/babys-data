@@ -1,11 +1,15 @@
 name: Probe pharmacy near moonlight hospitals
 
-# 달빛병원 근처 약국 분류 탐색. 손으로만 실행하고(예약 없음), 보고서를 로그에만 출력한다 — 파일을 만들거나 커밋하지 않는다.
+# 달빛병원 근처 약국 분류 탐색. 손으로만 실행하고(예약 없음), 보고서를 로그와 docs/pharmacy-probe.txt 로 남긴다(앱이 읽는 데이터는 아니다).
 on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write      # 보고서 파일을 커밋하려면 필요하다 (다른 권한은 주지 않는다)
+
+concurrency:
+  group: probe-pharmacy
+  cancel-in-progress: false
 
 jobs:
   probe:
@@ -25,4 +29,18 @@ jobs:
         env:
           # 공공데이터포털 일반 인증키(나들이·달빛병원 수집과 같은 Secret). 「전국 약국 정보 조회 서비스」 활용신청이 승인된 계정이어야 한다
           DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+          PHARMACY_REPORT: docs/pharmacy-probe.txt
         run: node scripts/probe-pharmacy.mjs
+
+      - name: Commit report when changed
+        run: |
+          if [ -z "$(git status --porcelain -- docs/pharmacy-probe.txt)" ]; then
+            echo "변경 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/pharmacy-probe.txt
+          git commit -m "data: pharmacy-probe.txt 갱신 ($(date -u +%F))"
+          git pull --rebase origin main
+          git push
