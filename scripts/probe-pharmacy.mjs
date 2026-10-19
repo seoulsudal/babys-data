@@ -14,7 +14,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseApiBody } from "./moonlight-lib.mjs";
-import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize } from "./pharmacy-lib.mjs";
+import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize, countDistribution } from "./pharmacy-lib.mjs";
 
 const ROOT = process.env.PHARMACY_ROOT || resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BASE = process.env.PHARMACY_API_BASE || "https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService";
@@ -95,9 +95,8 @@ async function main() {
     log(`반경 ${r}m: 약국이 있는 병원 ${b.anyPharmacy}곳 / 평일 18시 이후 ${b.weekdayAfter18}곳 / 22시 이후 ${b.weekdayAfter22}곳 / 주말 ${b.weekend}곳 / 공휴일 ${b.holiday}곳 (병원 ${s.hospitals}곳 중)`);
     log(`반경 ${r}m 평일 종료 시각별 병원: 약국 없음 ${k.none}곳 / 18시 이전 종료 ${k.noLate}곳 / 18~20시 ${k.b18to20}곳 / 20~22시 ${k.b20to22}곳 / 22시 이상 ${k.b22plus}곳`);
   }
-  const dist = {};
-  for (const n of Object.values(s.perHospitalAfter18Within1000)) { const label = n >= 5 ? "5곳 이상" : `${n}곳`; dist[label] = (dist[label] ?? 0) + 1; }
-  log(`1km 안 평일 18시 이후 약국 수별 병원 분포: ${JSON.stringify(dist)}`);
+  const dist = countDistribution(s.after18CountsWithin1000);
+  log(`1km 안 평일 18시 이후 약국 수별 병원 분포: ${JSON.stringify(dist.buckets)} (최대 ${dist.max}곳, 중앙값 ${dist.median}곳)`);
   log(`1km 안에 평일 18시 이후 약국이 없는 병원 ${s.noWeekdayAfter18Within1000.length}곳: ${s.noWeekdayAfter18Within1000.join(", ")}`);
 
   // 위치 조회와 비교(앞쪽 몇 곳만): 위치 조회가 지금 영업 중인 약국만 주는지 본다

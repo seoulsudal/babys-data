@@ -85,12 +85,22 @@ export function summarize(rows, radii) {
     closeBuckets[r] = b;
   }
   const within = (row, r, f) => row.pharmacies.filter((p) => p.meters <= r && p.c[f]).length;
-  const perHospitalAfter18Within1000 = Object.fromEntries(rows.map((row) => [row.name, within(row, 1000, "weekdayAfter18")]));
+  const after18CountsWithin1000 = rows.map((row) => within(row, 1000, "weekdayAfter18"));       // 병원 순서대로(이름이 같은 병원도 따로)
   return {
     hospitals: rows.length,
     byRadius,
     closeBuckets,
     noWeekdayAfter18Within1000: rows.filter((row) => within(row, 1000, "weekdayAfter18") === 0).map((row) => row.name),
-    perHospitalAfter18Within1000,
+    after18CountsWithin1000,
   };
+}
+
+const DIST_BUCKETS = [["0곳", (n) => n === 0], ["1~4곳", (n) => n >= 1 && n <= 4], ["5~9곳", (n) => n >= 5 && n <= 9], ["10~19곳", (n) => n >= 10 && n <= 19], ["20곳 이상", (n) => n >= 20]];
+
+/** 병원별 약국 수 목록을 구간으로 나누고 최댓값·중앙값(정렬 뒤 가운데, 짝수 개면 위쪽)을 구한다. */
+export function countDistribution(counts) {
+  const buckets = Object.fromEntries(DIST_BUCKETS.map(([label]) => [label, 0]));
+  for (const n of counts) buckets[DIST_BUCKETS.find(([, test]) => test(n))[0]]++;
+  const sorted = [...counts].sort((a, b) => a - b);
+  return { buckets, max: sorted.length ? sorted[sorted.length - 1] : 0, median: sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0 };
 }

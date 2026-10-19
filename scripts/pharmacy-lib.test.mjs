@@ -1,7 +1,7 @@
 // 약국 탐색(달빛병원 근처 약국 분류) 순수 함수 시험. 아래 약국·좌표는 모두 검증용 가상 값이며 실제 약국이 아니다.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize } from "./pharmacy-lib.mjs";
+import { distanceMeters, hoursOfRaw, classifyHours, pharmacyKey, summarize, countDistribution } from "./pharmacy-lib.mjs";
 
 test("두 좌표 사이의 직선거리(m)", () => {
   assert.equal(Math.round(distanceMeters(37.5, 127.0, 37.5, 127.0)), 0);
@@ -59,5 +59,26 @@ test("요약: 병원마다 반경 안 약국을 분류해 세고, 가장 늦게 
   assert.deepEqual(s.closeBuckets[500], { none: 1, noLate: 1, b18to20: 0, b20to22: 0, b22plus: 1 });
   assert.deepEqual(s.closeBuckets[1000], { none: 1, noLate: 0, b18to20: 0, b20to22: 1, b22plus: 1 });
   assert.deepEqual(s.noWeekdayAfter18Within1000, ["병원C"]);
-  assert.deepEqual(s.perHospitalAfter18Within1000, { 병원A: 2, 병원B: 1, 병원C: 0 });
+  assert.deepEqual(s.after18CountsWithin1000, [2, 1, 0]);
 });
+
+test("요약: 이름이 같은 병원도 따로 센다(병원마다 약국 수 목록은 순서대로 모두 담는다)", () => {
+  const c = { weekdayAfter18: true, weekdayAfter22: false, weekend: false, holiday: false, maxClose: 1900 };
+  const rows = [
+    { name: "같은 이름", pharmacies: [{ meters: 100, c }, { meters: 200, c }] },
+    { name: "같은 이름", pharmacies: [{ meters: 300, c }] },
+    { name: "다른 이름", pharmacies: [] },
+  ];
+  const s = summarize(rows, [1000]);
+  assert.deepEqual(s.after18CountsWithin1000, [2, 1, 0]);
+  assert.equal(s.hospitals, 3);
+});
+
+test("분포: 병원별 약국 수를 구간으로 나누고 최댓값·중앙값을 구한다", () => {
+  const d = countDistribution([0, 0, 1, 4, 5, 9, 10, 19, 20, 57]);
+  assert.deepEqual(d.buckets, { "0곳": 2, "1~4곳": 2, "5~9곳": 2, "10~19곳": 2, "20곳 이상": 2 });
+  assert.equal(d.max, 57);
+  assert.equal(d.median, 9);                       // 정렬한 뒤 가운데(짝수 개면 위쪽) 값
+  assert.deepEqual(countDistribution([]), { buckets: { "0곳": 0, "1~4곳": 0, "5~9곳": 0, "10~19곳": 0, "20곳 이상": 0 }, max: 0, median: 0 });
+});
+
