@@ -23,10 +23,16 @@ const LIST = [
 
 function fakeServer(mode = "ok") {
   const calls = [];
+  let drops = 0;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://x");
     const op = url.pathname.split("/").pop();
     calls.push(op);
+    if (mode === "down" || (mode === "flaky" && drops < 2) || (mode === "busy" && drops < 2)) {
+      drops++;
+      if (mode === "busy") { res.statusCode = 503; return res.end("busy"); }       // 서버가 바쁘다는 응답
+      return req.socket.destroy();                                                  // 연결을 끊는다
+    }
     res.setHeader("content-type", "application/xml");
     if (mode === "error") return res.end("<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>SERVICE ERROR</errMsg><returnReasonCode>30</returnReasonCode><returnAuthMsg>SERVICE_KEY_IS_NOT_REGISTERED_ERROR</returnAuthMsg></cmmMsgHeader></OpenAPI_ServiceResponse>");
     if (op !== "getParmacyListInfoInqire") { res.statusCode = 404; return res.end("not found"); }
@@ -52,7 +58,7 @@ async function setup(baselineCount) {
 function run(root, port, env = {}) {
   return new Promise((ok) => {
     const child = spawn(process.execPath, [SCRIPT], {
-      env: { ...process.env, PHARMACY_ROOT: root, DATA_GO_KR_API_KEY: "test-key-123", PHARMACY_API_BASE: `http://127.0.0.1:${port}`, PHARMACY_PAGE_SIZE: "2", ...env },
+      env: { ...process.env, PHARMACY_ROOT: root, DATA_GO_KR_API_KEY: "test-key-123", PHARMACY_API_BASE: `http://127.0.0.1:${port}`, PHARMACY_PAGE_SIZE: "2", PHARMACY_RETRY_PAUSE_MS: "1", ...env },
     });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
@@ -125,6 +131,35 @@ test("인증키가 없으면 호출 없이 실패하고, 서비스 오류는 코
     const bad = await run(root, port);
     assert.notEqual(bad.code, 0);
     assert.match(bad.out, /30/);
+    assert.equal(calls.length, 1);                                                          // 인증키 오류 같은 API 오류는 다시 시도해도 같으므로 한 번만 호출한다
     assert.equal(bad.out.includes("test-key-123"), false);
   } finally { server.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("연결이 중간에 끊기거나 서버가 바쁘다고 해도 다시 시도해 끝까지 수집한다", async () => {
+  for (const mode of ["flaky", "busy"]) {
+    const { server, calls, port } = await fakeServer(mode);
+    const root = await setup(null);
+    try {
+      const r = await run(root, port);
+      assert.equal(r.code, 0, `${mode}: ${r.out}`);
+      assert.deepEqual((await readOut(root)).items.map((i) => i.id).sort(), ["P1", "P4"]);
+      assert.equal(calls.length, 5, mode);                                                  // 3쪽 + 실패한 시도 2번
+    } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+  }
+});
+
+test("계속 끊기면 4번만 시도하고 원인을 알리며 실패한다(키는 출력하지 않는다)", async () => {
+  const { server, calls, port } = await fakeServer("down");
+  const root = await setup(3);
+  try {
+    const r = await run(root, port);
+    assert.notEqual(r.code, 0);
+    assert.equal(calls.length, 4);
+    assert.match(r.out, /네트워크 오류/);
+    assert.match(r.out, /4회 시도/);
+    assert.equal(r.out.includes("test-key-123"), false);
+    assert.equal((await readOut(root)).items.length, 3);                                   // 기존 파일은 그대로
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
