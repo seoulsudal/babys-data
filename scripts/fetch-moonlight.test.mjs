@@ -20,6 +20,7 @@ function fakeServer(all, mode = "ok") {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://x");
     calls.push(url.pathname);
+    if (mode === "flaky" && calls.length === 1) return req.socket.destroy();          // 첫 호출만 연결이 끊긴다
     res.setHeader("content-type", "application/xml");
     if (mode === "error") return res.end("<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>SERVICE ERROR</errMsg><returnReasonCode>30</returnReasonCode><returnAuthMsg>SERVICE_KEY_IS_NOT_REGISTERED_ERROR</returnAuthMsg></cmmMsgHeader></OpenAPI_ServiceResponse>");
     if (!url.pathname.endsWith("/getBabyListInfoInqire")) { res.statusCode = 404; return res.end("not found"); }
@@ -101,6 +102,17 @@ test("지금 게시된 건수의 절반 미만이면 실패한다", async () => 
     const r = await run(root, port);
     assert.notEqual(r.code, 0);
     assert.equal((await readOut(root)).items.length, 10);
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("연결이 한 번 끊겨도 다시 시도해 수집한다", async () => {
+  const { server, calls, port } = await fakeServer([hospital(1), hospital(2)], "flaky");
+  const root = await setup(null);
+  try {
+    const r = await run(root, port, { PHARMACY_RETRY_PAUSE_MS: "10" });
+    assert.equal(r.code, 0, r.out);
+    assert.equal((await readOut(root)).items.length, 2);
+    assert.ok(calls.length >= 2);
   } finally { server.close(); await rm(root, { recursive: true, force: true }); }
 });
 

@@ -16,7 +16,8 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseApiBody, hospitalItem } from "./moonlight-lib.mjs";
+import { hospitalItem } from "./moonlight-lib.mjs";
+import { createApi } from "./pharmacy-api.mjs";
 import { sameItems, guardCount } from "./outing-lib.mjs";
 
 // 시험에서는 MOONLIGHT_ROOT 로 임시 폴더를 가리킨다(실제 docs/moonlight.json 을 건드리지 않게)
@@ -39,24 +40,12 @@ async function readJson(file, fallback) {
   try { return JSON.parse(await readFile(file, "utf8")); } catch { return fallback; }
 }
 
-async function fetchPage(key, pageNo) {
-  const url = new URL(`${BASE}/${OPERATION}`);
-  url.search = new URLSearchParams({ serviceKey: key, pageNo: String(pageNo), numOfRows: String(PAGE_SIZE), _type: "json" }).toString();
-  const res = await fetch(url);
-  const text = await res.text();
-  try {
-    return parseApiBody(text);
-  } catch (e) {
-    throw new Error(`${e.message} (HTTP ${res.status})`);      // 요청 주소·본문(키가 들어갈 수 있음)은 출력하지 않는다
-  }
-}
-
 async function collect(rawKey) {
-  // 이미 URL 인코딩된 키(Encoding 키)를 넣어도 이중 인코딩되지 않게 디코딩한다
-  const key = rawKey.includes("%") ? decodeURIComponent(rawKey) : rawKey;
+  // 연결이 끊기거나 서버가 바쁠 때는 호출마다 다시 시도한다(약국 수집과 같은 클라이언트)
+  const api = createApi({ base: BASE, key: rawKey, maxCalls: MAX_PAGES * 4 });
   const rows = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const { items, total } = await fetchPage(key, page);
+    const { items, total } = await api.call(OPERATION, { pageNo: String(page), numOfRows: String(PAGE_SIZE) });
     rows.push(...items);
     if (rows.length >= total || items.length === 0) break;
     await sleep(120);

@@ -1,0 +1,46 @@
+name: Probe hospital general hours
+
+# 달빛병원 일반 진료시간 탐색. 손으로만 실행하고(예약 없음), 보고서를 로그와 docs/hospital-hours-probe.txt 로 남긴다(앱이 읽는 데이터는 아니다).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write      # 보고서 파일을 커밋하려면 필요하다 (다른 권한은 주지 않는다)
+
+concurrency:
+  group: probe-hospital-hours
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Test collector
+        run: node --test "scripts/*.test.mjs"
+
+      - name: Probe hospital hours
+        env:
+          # 공공데이터포털 일반 인증키(나들이·달빛병원 수집과 같은 Secret). 「전국 병·의원 찾기 서비스」 활용신청이 승인된 계정이어야 한다
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+          HOURS_REPORT: docs/hospital-hours-probe.txt
+        run: node scripts/probe-hospital-hours.mjs
+
+      - name: Commit report when changed
+        run: |
+          if [ -z "$(git status --porcelain -- docs/hospital-hours-probe.txt)" ]; then
+            echo "변경 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/hospital-hours-probe.txt
+          git commit -m "data: hospital-hours-probe.txt 갱신 ($(date -u +%F))"
+          git pull --rebase origin main
+          git push
