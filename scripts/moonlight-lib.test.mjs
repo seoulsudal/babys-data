@@ -59,7 +59,16 @@ test("항목 변환: 앱이 쓰는 필드만 만들고 진료시간은 월~일·
     id: "A0000001", name: "가나 아동병원", kind: "병원", address: "서울특별시 가나구 시험로 1 (시험동)", sido: "서울", district: "가나구",
     lat: 37.5, lng: 127.0, tel: "02-111-2222", note: "야간 진료는 전화 확인", info: "소아 전문 병원",
     hours: ["0900-2300", "0900-2300", null, null, null, null, "1000-2400", "0900-1800"],
+    generalHours: Array(8).fill(null),                                               // 일반 진료시간은 기본정보 조회에서 따로 채운다
   });
+  const g = ["0830-2100", null, null, null, null, null, null, null];
+  assert.deepEqual(hospitalItem(raw, g).generalHours, g);
+});
+
+test("시각: 숫자로 온 값(900)은 앞자리 0 을 채워 0900 으로 읽는다", () => {
+  const h = hospitalItem({ ...raw, dutyTime3s: "0830", dutyTime3c: 900, dutyTime4s: 830, dutyTime4c: 2100 });
+  assert.equal(h.hours[2], "0830-0900");
+  assert.equal(h.hours[3], "0830-2100");
 });
 
 test("항목 변환: 한쪽 시각만 있거나 형식이 틀리면 그 날은 null, 좌표가 범위 밖이면 null", () => {

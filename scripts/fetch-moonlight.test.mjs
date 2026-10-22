@@ -15,10 +15,18 @@ const hospital = (n, addr = "서울특별시 가나구 시험로 1", name = `가
   `<item><hpid>A${n}</hpid><dutyName>${name}</dutyName><dutyDivNam>병원</dutyDivNam><dutyAddr>${addr}</dutyAddr><dutyTel1>02-000-000${n}</dutyTel1><wgs84Lat>37.5</wgs84Lat><wgs84Lon>127.0</wgs84Lon><dutyTime1s>0900</dutyTime1s><dutyTime1c>2300</dutyTime1c></item>`;
 
 /** 가짜 API: pages 를 numOfRows 크기로 잘라 돌려준다. mode 로 오류·빈 응답을 흉내 낸다. */
-function fakeServer(all, mode = "ok") {
+function fakeServer(all, mode = "ok", general = null) {
   const calls = [];
+  const generalCalls = [];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://x");
+    if (url.pathname.endsWith("/getHsptlBassInfoInqire")) {                       // 병원 기본정보(일반 진료시간). general 이 없으면 이 기능이 없는 서버처럼 404
+      generalCalls.push(url.searchParams.get("HPID"));
+      res.setHeader("content-type", "application/xml");
+      const fields = general?.[url.searchParams.get("HPID")];
+      if (!fields) { res.statusCode = 404; return res.end("not found"); }
+      return res.end(`<response><header><resultCode>00</resultCode></header><body><items><item><hpid>${url.searchParams.get("HPID")}</hpid>${fields}</item></items><totalCount>1</totalCount></body></response>`);
+    }
     calls.push(url.pathname);
     if (mode === "flaky" && calls.length === 1) return req.socket.destroy();          // 첫 호출만 연결이 끊긴다
     res.setHeader("content-type", "application/xml");
@@ -28,7 +36,7 @@ function fakeServer(all, mode = "ok") {
     const slice = mode === "empty" ? [] : all.slice((page - 1) * rows, page * rows);
     res.end(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items>${slice.join("")}</items><numOfRows>${rows}</numOfRows><pageNo>${page}</pageNo><totalCount>${mode === "empty" ? 0 : all.length}</totalCount></body></response>`);
   });
-  return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok({ server, calls, port: server.address().port })));
+  return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok({ server, calls, generalCalls, port: server.address().port })));
 }
 
 async function setup(baselineCount) {
@@ -113,6 +121,37 @@ test("연결이 한 번 끊겨도 다시 시도해 수집한다", async () => {
     assert.equal(r.code, 0, r.out);
     assert.equal((await readOut(root)).items.length, 2);
     assert.ok(calls.length >= 2);
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+const generalFields = (open, close) => `<dutyTime1s>${open}</dutyTime1s><dutyTime1c>${close}</dutyTime1c>`;
+
+test("병원마다 일반 진료시간을 받아 generalHours 로 저장한다(숫자로 온 종료 시각의 앞자리 0도 채운다)", async () => {
+  const { server, generalCalls, port } = await fakeServer([hospital(1), hospital(2)], "ok", { A1: generalFields("0830", 2100), A2: generalFields("0900", 900) });
+  const root = await setup(null);
+  try {
+    const r = await run(root, port, { PHARMACY_RETRY_PAUSE_MS: "10" });
+    assert.equal(r.code, 0, r.out);
+    const out = await readOut(root);
+    assert.deepEqual(generalCalls.sort(), ["A1", "A2"]);
+    assert.equal(out.items.find((i) => i.id === "A1").generalHours[0], "0830-2100");
+    assert.equal(out.items.find((i) => i.id === "A2").generalHours[0], "0900-0900");     // "900" → "0900"
+    assert.equal(out.items[0].generalHours.length, 8);
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("일반 진료시간 조회가 실패한 병원은 지금 게시된 값을 그대로 쓰고 없으면 모두 비워 둔다", async () => {
+  const { server, port } = await fakeServer([hospital(1), hospital(2)], "ok", { A1: generalFields("0830", 2100) });     // A2 는 404
+  const root = await setup(null);
+  await writeFile(join(root, "docs/moonlight.json"), JSON.stringify({ updatedAt: "2026-01-01T00:00:00.000Z", items: [
+    { id: "A2", name: "옛", generalHours: ["0900-1800", null, null, null, null, null, null, null] },
+    { id: "A9", name: "옛2" }, { id: "A8", name: "옛3" }] }));
+  try {
+    const r = await run(root, port, { PHARMACY_RETRY_PAUSE_MS: "10" });
+    assert.equal(r.code, 0, r.out);
+    const out = await readOut(root);
+    assert.equal(out.items.find((i) => i.id === "A1").generalHours[0], "0830-2100");
+    assert.equal(out.items.find((i) => i.id === "A2").generalHours[0], "0900-1800");     // 이전 값 유지
   } finally { server.close(); await rm(root, { recursive: true, force: true }); }
 });
 

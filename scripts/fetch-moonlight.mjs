@@ -16,7 +16,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hospitalItem } from "./moonlight-lib.mjs";
+import { hospitalItem, hoursOf } from "./moonlight-lib.mjs";
 import { createApi } from "./pharmacy-api.mjs";
 import { sameItems, guardCount } from "./outing-lib.mjs";
 
@@ -32,6 +32,7 @@ const BASE = process.env.MOONLIGHT_API_BASE || "https://apis.data.go.kr/B552657/
 const OPERATION = "getBabyListInfoInqire";
 const PAGE_SIZE = Number(process.env.MOONLIGHT_PAGE_SIZE || 100);
 const MAX_PAGES = 30;       // 안전 상한(전국 수백 건이면 몇 쪽이면 끝난다)
+const MAX_CALLS = 3000;     // 목록 쪽 + 병원마다 기본정보 1회(재시도 포함)의 상한
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(...a);
@@ -40,9 +41,7 @@ async function readJson(file, fallback) {
   try { return JSON.parse(await readFile(file, "utf8")); } catch { return fallback; }
 }
 
-async function collect(rawKey) {
-  // 연결이 끊기거나 서버가 바쁠 때는 호출마다 다시 시도한다(약국 수집과 같은 클라이언트)
-  const api = createApi({ base: BASE, key: rawKey, maxCalls: MAX_PAGES * 4 });
+async function collect(api) {
   const rows = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
     const { items, total } = await api.call(OPERATION, { pageNo: String(page), numOfRows: String(PAGE_SIZE) });
@@ -53,16 +52,43 @@ async function collect(rawKey) {
   return rows;
 }
 
+/**
+ * 병원마다 기본정보(getHsptlBassInfoInqire)에서 일반 진료시간 8칸을 읽는다. 한 곳이 실패해도 전체를 멈추지 않고,
+ * 그 병원은 지금 게시된 값(없으면 모두 비움)을 그대로 쓴다.
+ */
+async function collectGeneralHours(api, ids, previous) {
+  const out = new Map();
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      const raw = (await api.call("getHsptlBassInfoInqire", { HPID: id, pageNo: "1", numOfRows: "1" })).items[0];
+      if (raw) { out.set(id, hoursOf(raw)); continue; }
+    } catch (e) {
+      failed++;
+      if (failed <= 3) log(`일반 진료시간 조회 실패(${id}): ${e.message}`);      // 요청 주소·본문(키가 들어갈 수 있음)은 담지 않는다
+    }
+    if (previous.get(id)) out.set(id, previous.get(id));
+    await sleep(80);
+  }
+  log(`일반 진료시간: ${ids.length}곳 중 ${[...out.values()].filter((h) => h.some(Boolean)).length}곳 있음, 조회 실패 ${failed}곳`);
+  return out;
+}
+
 async function main() {
   const key = process.env.DATA_GO_KR_API_KEY;
   if (!key) {
     console.error("DATA_GO_KR_API_KEY 가 필요합니다.");
     process.exit(1);
   }
-  const rows = await collect(key);
+  // 연결이 끊기거나 서버가 바쁠 때는 호출마다 다시 시도한다(약국 수집과 같은 클라이언트)
+  const api = createApi({ base: BASE, key, maxCalls: MAX_CALLS });
+  const existing = await readJson(OUT_FILE, null);
+  const rows = await collect(api);
   const seen = new Set();
-  const items = rows.map(hospitalItem).filter((h) => h && !seen.has(h.id) && seen.add(h.id))
+  const items = rows.map((raw) => hospitalItem(raw)).filter((h) => h && !seen.has(h.id) && seen.add(h.id))
     .sort((a, b) => (a.sido ?? "힣").localeCompare(b.sido ?? "힣", "ko") || a.name.localeCompare(b.name, "ko"));
+  const general = await collectGeneralHours(api, items.map((h) => h.id), new Map((existing?.items ?? []).filter((h) => h.generalHours).map((h) => [h.id, h.generalHours])));
+  for (const h of items) h.generalHours = general.get(h.id) ?? h.generalHours;
   const count = (f) => items.filter(f).length;
   log(`응답 ${rows.length}건 중 ${items.length}건 채택(건너뜀 ${rows.length - items.length})`);
   const bySido = {};
@@ -70,7 +96,6 @@ async function main() {
   log(`시도별: ${JSON.stringify(bySido)}`);
   log(`좌표 있음 ${count((i) => i.lat != null)}건, 전화 있음 ${count((i) => i.tel)}건, 진료시간이 하나라도 있음 ${count((i) => i.hours.some(Boolean))}건`);
 
-  const existing = await readJson(OUT_FILE, null);
   const existingItems = existing?.items ?? [];
   if (!guardCount(existingItems.length, items.length)) {
     console.error(`수집 결과(${items.length}건)가 0건이거나 지금 게시된 ${existingItems.length}건의 절반 미만이라 파일을 갱신하지 않습니다.`);

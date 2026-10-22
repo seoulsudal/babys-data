@@ -72,15 +72,21 @@ const clean = (v, max) => {
   return s ? s.slice(0, max) : null;
 };
 
+/** API 가 숫자로 주는 시각("900")은 앞자리 0 이 빠지므로 4자리로 맞춘다. */
+const hhmm = (v) => {
+  const s = String(v ?? "").trim();
+  return /^\d{1,3}$/.test(s) ? s.padStart(4, "0") : s;
+};
+
 export function hoursOf(raw) {
   return Array.from({ length: DAY_COUNT }, (_, i) => {
-    const open = String(raw[`dutyTime${i + 1}s`] ?? "").trim(), close = String(raw[`dutyTime${i + 1}c`] ?? "").trim();
+    const open = hhmm(raw[`dutyTime${i + 1}s`]), close = hhmm(raw[`dutyTime${i + 1}c`]);
     return HHMM.test(open) && HHMM.test(close) ? `${open}-${close}` : null;
   });
 }
 
-/** 응답 한 줄 → 앱 모양. 기관ID·이름·주소가 없으면 null(건너뛴다). */
-export function hospitalItem(raw) {
+/** 응답 한 줄 → 앱 모양. 기관ID·이름·주소가 없으면 null(건너뛴다). [generalHours] 는 병원 기본정보에서 읽은 일반 진료시간(8칸). */
+export function hospitalItem(raw, generalHours = Array(DAY_COUNT).fill(null)) {
   const id = clean(raw.hpid, 40), name = clean(raw.dutyName, 100), address = clean(raw.dutyAddr, 200);
   if (!id || !name || !address) return null;
   const { lat, lng } = pickLatLng(raw.wgs84Lat, raw.wgs84Lon);
@@ -96,5 +102,6 @@ export function hospitalItem(raw) {
     note: clean(raw.dutyEtc, 300),
     info: clean(raw.dutyInf, 300),
     hours: hoursOf(raw),
+    generalHours,
   };
 }
