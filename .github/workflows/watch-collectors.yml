@@ -1,0 +1,62 @@
+name: Watch collectors
+
+# 수집 워크플로(나들이·달빛병원·약국·키즈카페·예방접종 점검)가 제때 성공하고 있는지 매일 확인하고, 멈추거나 오래 실패하면 GitHub 이슈로 알린다.
+# GitHub 은 실패한 예약 실행의 메일은 보내지만, 예약 실행이 조용히 멈추거나(워크플로가 꺼짐·누락) 며칠째 실패하는 것은 따로 알리지 않는다.
+on:
+  schedule:
+    # 수집(한국 시간 00:15~00:25)이 끝난 뒤 매일 한국 시간 10:30(UTC 01:30)에 점검한다. 정각은 예약이 몰려 늦게 시작하므로 비켜 둔다
+    - cron: "30 1 * * *"
+  workflow_dispatch:   # Actions 탭에서 손으로 실행
+
+permissions:
+  contents: read       # 코드를 내려받는 데만 쓴다
+  actions: read        # 워크플로 상태와 실행 기록을 읽는다
+  issues: write        # 문제가 있으면 이슈를 만들고, 해소되면 닫는다 (다른 권한은 주지 않는다)
+
+concurrency:
+  group: watch-collectors
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # 점검 코드가 깨지지 않았는지 먼저 확인한다(네트워크 없이 가짜 응답으로 시험한다)
+      - name: Test watcher
+        run: node --test "scripts/watch-collectors-lib.test.mjs"
+
+      # 종료코드: 0 정상 / 10 확인이 필요한 수집이 있음 / 그 밖은 점검 실패(작업이 실패로 표시되고 알림 메일이 간다)
+      - name: Check collectors and notify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          node scripts/watch-collectors.mjs report.md
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ] && [ "$code" -ne 10 ]; then
+            echo "점검 실패(종료코드 $code)"
+            exit "$code"
+          fi
+          # 알림용 라벨이 없으면 만든다(이미 있으면 무시한다)
+          gh label create collector-alert --color D93F0B --description "수집이 멈추거나 실패했어요" 2>/dev/null || true
+          open=$(gh issue list --label collector-alert --state open --json number --jq '.[0].number // empty')
+          if [ "$code" -eq 0 ]; then
+            if [ -n "$open" ]; then
+              gh issue close "$open" --comment "수집이 다시 정상이에요. 이 이슈를 닫아요. ($(date -u +%F))"
+            fi
+            exit 0
+          fi
+          if [ -n "$open" ]; then
+            gh issue edit "$open" --body-file report.md     # 메일을 또 보내지 않고 내용만 갱신한다
+          else
+            gh issue create --title "수집 점검: 멈추거나 실패한 수집이 있어요 ($(date -u +%F))" --label collector-alert --body-file report.md
+          fi
