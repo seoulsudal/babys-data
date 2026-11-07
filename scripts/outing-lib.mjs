@@ -7,6 +7,11 @@ import { createHash } from "node:crypto";
 
 // 관광지 12, 문화시설 14, 레포츠 28 만 장소로 채택 (행사 15 는 따로, 숙박·음식·쇼핑 제외)
 export const TOUR_PLACE_TYPES = new Set(["12", "14", "28"]);
+// 장소의 분류 이름(출처의 contenttypeid 를 이름으로만 바꾼다). 제목에서 추정하지 않는다
+const TOUR_CATEGORY_NAMES = { "12": "관광지", "14": "문화시설", "28": "레포츠" };
+export function tourCategory(contentTypeId) {
+  return TOUR_CATEGORY_NAMES[String(contentTypeId)] || null;
+}
 // 장소는 목록 전체를 받지 않고 키워드로 먼저 좁혀 받는다 (searchKeyword2)
 export const TOUR_PLACE_KEYWORDS = [
   "어린이", "키즈", "유아", "아이와", "가족", "동물원", "수족관", "아쿠아리움",
@@ -131,6 +136,7 @@ export function tourItem({ raw, kind, region, start, end }, detail) {
     tel: tel && !tel.replace(/\D/g, "").startsWith("01") ? tel : null,
     source: "tour",
     summary: detail.overview || "",
+    ...(kind === "place" && tourCategory(raw.contenttypeid) ? { category: tourCategory(raw.contenttypeid) } : {}),
   };
 }
 
@@ -158,12 +164,13 @@ export function seoulEventItem(r, today, until) {
     tel: null,
     source: "seoul",
     summary: stripHtml(r.PROGRAM || r.ETC_DESC || "").slice(0, 300),
+    ...(stripHtml(r.CODENAME) ? { category: stripHtml(r.CODENAME) } : {}),
   };
 }
 
 /* ---------------- 출력 ---------------- */
 
-const KEEP = ["id", "type", "title", "region", "district", "address", "lat", "lng", "startDate", "endDate", "officialUrl", "tel", "source", "summary"];
+const KEEP = ["id", "type", "title", "region", "district", "address", "lat", "lng", "startDate", "endDate", "officialUrl", "tel", "source", "summary", "category"];
 
 /** 앱이 쓰는 필드만 남긴다(이미지·연령·무료·실내는 담지 않는다). */
 export function slimItem(item) {

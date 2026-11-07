@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   stripHtml, extractUrl, pickLatLng, fillDistrict, dedupe, applyOverrides,
-  tourEventCandidate, tourPlaceCandidate, seoulEventItem, tourItem, slimItem, sameItems, guardCount,
+  tourEventCandidate, tourPlaceCandidate, seoulEventItem, tourItem, slimItem, sameItems, guardCount, tourCategory,
 } from "./outing-lib.mjs";
 
 const TODAY = "2026-10-18";
@@ -126,3 +126,46 @@ test("guardCount: 0건이거나 지금의 절반 미만이면 덮어쓰지 않�
   assert.equal(guardCount(100, 50), true);
   assert.equal(guardCount(0, 5), true);          // 처음 만들 때
 });
+
+// ---- 분류(category): 출처가 주는 값을 그대로 담는다. 제목에서 추정하지 않는다 ----
+
+test("tourCategory: 장소로 채택하는 세 가지 분류만 이름을 준다", () => {
+  assert.equal(tourCategory("12"), "관광지");
+  assert.equal(tourCategory("14"), "문화시설");
+  assert.equal(tourCategory("28"), "레포츠");
+  assert.equal(tourCategory(12), "관광지");              // 숫자로 와도 같다
+  assert.equal(tourCategory("15"), null);                // 행사는 분류가 아니다
+  assert.equal(tourCategory("39"), null);                // 음식점 등은 장소로 채택하지 않는다
+  assert.equal(tourCategory(undefined), null);
+});
+
+test("tourItem: 장소에는 출처의 분류가 붙고, 행사나 모르는 분류에는 붙지 않는다", () => {
+  const raw = { contentid: "77", title: "구름 놀이터", addr1: "서울 가나구 시험로 1", addr2: "", mapy: "37.5", mapx: "127.0", tel: "" };
+  const detail = { overview: "설명", homepage: null };
+  assert.equal(tourItem({ raw: { ...raw, contenttypeid: "14" }, kind: "place", region: "서울" }, detail).category, "문화시설");
+  assert.equal(tourItem({ raw: { ...raw, contenttypeid: "12" }, kind: "place", region: "서울" }, detail).category, "관광지");
+  assert.equal("category" in tourItem({ raw: { ...raw, contenttypeid: "39" }, kind: "place", region: "서울" }, detail), false);
+  assert.equal("category" in tourItem({ raw: { ...raw, contenttypeid: "15" }, kind: "event", region: "서울", start: "2026-10-20", end: "2026-10-21" }, detail), false);
+});
+
+test("seoulEventItem: 서울 문화행사의 분류명(CODENAME)을 그대로 담고, 비어 있으면 담지 않는다", () => {
+  const row = {
+    TITLE: "어린이 인형극", STRTDATE: "2026-10-20 00:00:00.0", END_DATE: "2026-10-21 00:00:00.0", PLACE: "시험문화회관", GUNAME: "가나구",
+    USE_TRGT: "누구나", CODENAME: " 연극 ", LAT: "127.0", LOT: "37.5", ORG_LINK: "", PROGRAM: "설명",
+  };
+  assert.equal(seoulEventItem(row, TODAY, UNTIL).category, "연극");
+  assert.equal("category" in seoulEventItem({ ...row, CODENAME: "" }, TODAY, UNTIL), false);
+  assert.equal("category" in seoulEventItem({ ...row, CODENAME: "   " }, TODAY, UNTIL), false);
+});
+
+test("slimItem: 분류는 담고, 분류가 없는 항목에는 키를 만들지 않는다", () => {
+  assert.equal(slimItem({ id: "a", type: "place", title: "T", category: "관광지" }).category, "관광지");
+  assert.equal("category" in slimItem({ id: "a", type: "place", title: "T" }), false);
+});
+
+test("sameItems: 분류만 달라도 다른 목록이다(처음 분류가 생길 때 파일이 갱신되어야 한다)", () => {
+  const without = [{ id: "1", title: "A" }];
+  const withCat = [{ id: "1", title: "A", category: "관광지" }];
+  assert.equal(sameItems(without, withCat), false);
+});
+
