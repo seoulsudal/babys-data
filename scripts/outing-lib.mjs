@@ -136,7 +136,7 @@ export function tourItem({ raw, kind, region, start, end }, detail) {
     tel: tel && !tel.replace(/\D/g, "").startsWith("01") ? tel : null,
     source: "tour",
     summary: detail.overview || "",
-    ...(kind === "place" && tourCategory(raw.contenttypeid) ? { category: tourCategory(raw.contenttypeid) } : {}),
+    ...(tourCategory(raw.contenttypeid) ? { category: tourCategory(raw.contenttypeid) } : {}),
   };
 }
 
