@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 수도권(서울·경기·인천) 아이 동반 장소·행사를 공공 API에서 모아 docs/outing.json 으로 만든다(BABYS 앱의 "나들이" 탭 자료).
+ * 전국 아이 동반 장소·행사를 공공 API에서 모아 docs/outing.json 으로 만든다(BABYS 앱의 "나들이" 탭 자료).
  * 사용자의 sub_project 수집 스크립트에서 옮겨 왔고, 앱이 쓰는 필드만 만든다(순수 함수는 outing-lib.mjs).
  *
  * 사용법
@@ -36,11 +36,26 @@ const DRY = process.argv.slice(2).includes("--dry");
 const TOUR_BASE = process.env.TOUR_API_BASE || "https://apis.data.go.kr/B551011/KorService2";
 // 서울 API의 8088 포트는 http 전용이라 서버(이 스크립트)에서만 부른다. 앱은 이 API를 직접 부르지 않는다.
 const SEOUL_BASE = process.env.SEOUL_API_BASE || "http://openapi.seoul.go.kr:8088";
-// 법정동 시도코드 (lDongRegnCd)
+// 법정동 시도코드 (lDongRegnCd) — 앱의 칩 순서·허용 지역(OUTING_REGIONS)과 같은 이름·순서다.
+// 광주·전남은 출처에서 전남광주통합특별시(12) 하나로 합쳐졌고 주소도 구분되지 않아 "전남광주"로 둔다. 세종은 36110(옛 36은 0건).
+// 코드가 또 바뀌면 그 지역이 조용히 0건이 되므로, 수집 뒤 후보가 없는 지역을 경고한다.
 const TOUR_REGIONS = [
   { name: "서울", code: "11" },
-  { name: "인천", code: "28" },
   { name: "경기", code: "41" },
+  { name: "인천", code: "28" },
+  { name: "부산", code: "26" },
+  { name: "대구", code: "27" },
+  { name: "대전", code: "30" },
+  { name: "울산", code: "31" },
+  { name: "세종", code: "36110" },
+  { name: "강원", code: "51" },
+  { name: "충북", code: "43" },
+  { name: "충남", code: "44" },
+  { name: "전북", code: "52" },
+  { name: "경북", code: "47" },
+  { name: "경남", code: "48" },
+  { name: "제주", code: "50" },
+  { name: "전남광주", code: "12" },
 ];
 const MAX_TOUR_CALLS = Number(process.env.MAX_TOUR_CALLS || 850);
 const EVENT_WINDOW_DAYS = 90;      // 오늘부터 이 기간 안에 시작하는 행사만 수집
@@ -133,6 +148,11 @@ async function collectTour(cache) {
     }
   }
   log(`[tour] 후보 ${out.length}건 (목록 조회 호출 ${tourCalls}회)`);
+  // 지역별 후보 수. 0건인 지역은 지역 코드가 바뀌었을 수 있으니 경고한다(실패시키지는 않는다)
+  const perRegion = TOUR_REGIONS.map((r) => ({ name: r.name, n: out.filter((o) => o.region === r.name).length }));
+  log(`[tour] 지역별 후보: ${perRegion.map((r) => `${r.name} ${r.n}`).join(", ")}`);
+  const empty = perRegion.filter((r) => r.n === 0).map((r) => r.name);
+  if (empty.length) log(`[tour] 경고: 후보가 없는 지역: ${empty.join(", ")} (지역 코드가 바뀌었는지 확인)`);
 
   // 3) 상세(개요·홈페이지): 캐시에 없는 것만 조회해 호출 수를 아낀다. 행사를 먼저, 아이 관련 단어가 제목에 있는 장소를 그다음에
   const ordered = [...targets].sort((a, b) => Number(!!b.event) - Number(!!a.event) || Number(!!b.strong) - Number(!!a.strong));

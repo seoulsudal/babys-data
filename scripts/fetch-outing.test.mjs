@@ -16,8 +16,9 @@ const compact = (s) => s.replaceAll("-", "");
 const day = (offset) => ymd(new Date(Date.now() + offset * 86400000));
 
 /** 가짜 TourAPI·서울 API. calls 에 호출한 연산 이름을 쌓는다. */
-function fakeServer({ tourPlaces = 1, seoulRows = 1 } = {}) {
+function fakeServer({ tourPlaces = 1, seoulRows = 1, placeRegions = ["11"] } = {}) {
   const calls = [];
+  const festivalRegions = [];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://x");
     const send = (obj) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(obj)); };
@@ -27,11 +28,12 @@ function fakeServer({ tourPlaces = 1, seoulRows = 1 } = {}) {
       const ok = (items, total = items.length) => send({ response: { header: { resultCode: "0000" }, body: { items: items.length ? { item: items } : "", totalCount: total } } });
       const region = url.searchParams.get("lDongRegnCd");
       if (op === "searchFestival2") {
+        festivalRegions.push(region);
         return ok(region === "11" ? [{ contentid: "E1", contenttypeid: "15", title: "어린이 가족 축제", eventstartdate: compact(day(-1)), eventenddate: compact(day(3)), addr1: "서울 가나구 시험로 1", mapy: "37.5", mapx: "127.0", tel: "02-111-2222" }] : []);
       }
       if (op === "searchKeyword2") {
-        if (region !== "11" || url.searchParams.get("keyword") !== "어린이") return ok([]);
-        return ok(Array.from({ length: tourPlaces }, (_, i) => ({ contentid: `P${i + 1}`, contenttypeid: "12", title: `어린이 놀이터 ${i + 1}`, addr1: "서울 다라구 시험로 2", mapy: "37.4", mapx: "127.1", tel: "010-1234-5678" })));
+        if (!placeRegions.includes(region) || url.searchParams.get("keyword") !== "어린이") return ok([]);
+        return ok(Array.from({ length: tourPlaces }, (_, i) => ({ contentid: region === "11" ? `P${i + 1}` : `${region}-P${i + 1}`, contenttypeid: "12", title: region === "11" ? `어린이 놀이터 ${i + 1}` : `어린이 놀이터 ${region}-${i + 1}`, addr1: region === "11" ? "서울 다라구 시험로 2" : "지방 마바구 시험로 3", mapy: "37.4", mapx: "127.1", tel: "010-1234-5678" })));
       }
       if (op === "detailCommon2") return ok([{ overview: `개요 <b>${url.searchParams.get("contentId")}</b> 어린이 가족`, homepage: '<a href="https://example.com/h">홈</a>' }]);
       if (op === "detailIntro2") return ok([{ eventhomepage: "https://example.com/event" }]);
@@ -47,7 +49,7 @@ function fakeServer({ tourPlaces = 1, seoulRows = 1 } = {}) {
     }
     res.statusCode = 404; res.end("not found");
   });
-  return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok({ server, calls, port: server.address().port })));
+  return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok({ server, calls, festivalRegions, port: server.address().port })));
 }
 
 async function setup(baselineItems) {
@@ -128,10 +130,10 @@ test("TourAPI 호출 상한에 닿으면 남은 상세는 다음 실행으로 �
   const { server, calls, port } = await fakeServer({ tourPlaces: 10 });
   const root = await setup(dummy(2));
   try {
-    const r = await run(root, port, { MAX_TOUR_CALLS: "58" })   // 목록 조회가 51회라 상세에는 7회가 남는다;
+    const r = await run(root, port, { MAX_TOUR_CALLS: "279" })   // 목록 조회가 272회(지역 16개: 행사 16 + 키워드 16x16)라 상세에는 7회가 남는다
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /상한 도달/);
-    assert.ok(calls.filter((c) => c.startsWith("detail") || c.startsWith("search")).length <= 58);
+    assert.ok(calls.filter((c) => c.startsWith("detail") || c.startsWith("search")).length <= 279);
     const cache = JSON.parse(await readFile(join(root, "data/outing-cache.json"), "utf8"));
     assert.ok(Object.keys(cache.tour).length < 11);                                         // 행사 1 + 장소 10 모두는 못 채웠다
     assert.ok(Object.keys(cache.tour).includes("E1"));                                      // 행사를 먼저 채운다
@@ -156,5 +158,31 @@ test("키가 한쪽만 있으면 그 소스만 수집한다", async () => {
     assert.equal(r.code, 0, r.out);
     assert.equal(calls.some((c) => c.startsWith("search")), false);
     assert.deepEqual((await readOut(root)).items.map((i) => i.source), ["seoul"]);
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("전국 16개 지역을 모두 조회하고 지역 이름(광주·전남은 전남광주 하나, 세종 코드는 36110)을 붙인다", async () => {
+  const { server, festivalRegions, port } = await fakeServer({ placeRegions: ["11", "41", "12", "36110"] });
+  const root = await setup(dummy(2));
+  try {
+    const r = await run(root, port);
+    assert.equal(r.code, 0, r.out);
+    // 조회한 지역 코드: 서울11 경기41 인천28 부산26 대구27 대전30 울산31 세종36110 강원51 충북43 충남44 전북52 경북47 경남48 제주50 전남광주12
+    assert.deepEqual([...new Set(festivalRegions)].sort(), ["11", "12", "26", "27", "28", "30", "31", "36110", "41", "43", "44", "47", "48", "50", "51", "52"].sort());
+    const places = (await readOut(root)).items.filter((i) => i.source === "tour" && i.type === "place");
+    assert.deepEqual(places.map((i) => i.region).sort(), ["경기", "서울", "세종", "전남광주"].sort());
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("후보가 하나도 없는 지역은 경고로 남기되 실패하지는 않는다(지역 코드가 바뀌면 조용히 0건이 되기 때문)", async () => {
+  const { server, port } = await fakeServer({ placeRegions: ["11"] });
+  const root = await setup(dummy(2));
+  try {
+    const r = await run(root, port);
+    assert.equal(r.code, 0, r.out);
+    const warn = r.out.split("\n").find((l) => l.includes("후보가 없는 지역"));
+    assert.ok(warn, r.out);
+    assert.match(warn, /전남광주/);
+    assert.doesNotMatch(warn, /서울/);                                                      // 서울은 후보가 있다
   } finally { server.close(); await rm(root, { recursive: true, force: true }); }
 });
